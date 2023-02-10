@@ -21,7 +21,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/nuclio/nuclio/pkg/common"
@@ -33,10 +35,11 @@ import (
 	"github.com/nuclio/nuclio/pkg/platform/abstract"
 	"github.com/nuclio/nuclio/pkg/platformconfig"
 	"github.com/nuclio/nuclio/pkg/processor"
-	"github.com/nuclio/nuclio/pkg/processor/config"
+	processorconfig "github.com/nuclio/nuclio/pkg/processor/config"
 	"github.com/nuclio/nuclio/pkg/processor/healthcheck"
 	"github.com/nuclio/nuclio/pkg/processor/metricsink"
 	"github.com/nuclio/nuclio/pkg/processor/runtime"
+
 	// load all runtimes
 	_ "github.com/nuclio/nuclio/pkg/processor/runtime/dotnetcore"
 	_ "github.com/nuclio/nuclio/pkg/processor/runtime/golang"
@@ -47,6 +50,7 @@ import (
 	_ "github.com/nuclio/nuclio/pkg/processor/runtime/shell"
 	"github.com/nuclio/nuclio/pkg/processor/timeout"
 	"github.com/nuclio/nuclio/pkg/processor/trigger"
+
 	// load all triggers
 	_ "github.com/nuclio/nuclio/pkg/processor/trigger/cron"
 	_ "github.com/nuclio/nuclio/pkg/processor/trigger/http"
@@ -64,6 +68,7 @@ import (
 	"github.com/nuclio/nuclio/pkg/processor/util/clock"
 	"github.com/nuclio/nuclio/pkg/processor/webadmin"
 	"github.com/nuclio/nuclio/pkg/processor/worker"
+
 	// load all sinks
 	_ "github.com/nuclio/nuclio/pkg/sinks"
 
@@ -84,6 +89,7 @@ type Processor struct {
 	eventTimeoutWatcher       *timeout.EventTimeoutWatcher
 	startComplete             bool
 	stop                      chan bool
+	stopSignal                chan os.Signal
 	stopRestartTriggerRoutine chan bool
 	restartTriggerChan        chan trigger.Trigger
 }
@@ -95,6 +101,7 @@ func NewProcessor(configurationPath string, platformConfigurationPath string) (*
 	newProcessor := &Processor{
 		namedWorkerAllocators:     worker.NewAllocatorSyncMap(),
 		stop:                      make(chan bool, 1),
+		stopSignal:                make(chan os.Signal, 1),
 		stopRestartTriggerRoutine: make(chan bool, 1),
 		restartTriggerChan:        make(chan trigger.Trigger, 1),
 	}
@@ -209,6 +216,9 @@ func (p *Processor) Start() error {
 	// indicate that we're done starting
 	p.startComplete = true
 
+	// Trap exist signal
+	go p.trapStopSignal()
+
 	p.logger.Debug("Processor started")
 
 	<-p.stop // Wait for stop
@@ -260,6 +270,44 @@ func (p *Processor) GetStatus() status.Status {
 func (p *Processor) Stop() {
 	p.stopRestartTriggerRoutine <- true
 	p.stop <- true
+}
+
+// Stopping gracefully
+func (p *Processor) StopGracefully() error {
+	if p.startComplete {
+		p.logger.Info("Stop runtime gracefully")
+		p.stopRestartTriggerRoutine <- true
+		var wg sync.WaitGroup
+		wg.Add(len(p.GetWorkers()))
+		for _, workerInstance := range p.GetWorkers() {
+			go func(workerInstance *worker.Worker, wg *sync.WaitGroup) {
+				defer wg.Done()
+				workerInstance.StopGracefully()
+			}(workerInstance, &wg)
+		}
+		wg.Wait()
+		p.stop <- true
+	}
+	return nil
+}
+
+// Trap Stop Signal
+func (p *Processor) trapStopSignal() {
+	p.logger.Info("Trap stopping signal")
+	signal.Notify(p.stopSignal,
+		syscall.SIGINT,
+		syscall.SIGQUIT,
+		syscall.SIGTERM,
+	)
+	go func() {
+		defer close(p.stopSignal)
+		for {
+			s := <-p.stopSignal
+			p.logger.DebugWith("Caught Signal: ", "signal", s.String())
+			p.StopGracefully()
+			return
+		}
+	}()
 }
 
 func (p *Processor) readConfiguration(configurationPath string) (*processor.Configuration, error) {

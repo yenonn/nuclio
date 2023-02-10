@@ -18,6 +18,7 @@ package worker
 
 import (
 	"net/http"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -36,12 +37,14 @@ type Worker struct {
 	// accessed atomically, keep as first field for alignment
 	statistics Statistics
 
-	logger               logger.Logger
-	index                int
-	runtime              runtime.Runtime
-	structuredCloudEvent cloudevent.Structured
-	binaryCloudEvent     cloudevent.Binary
-	eventTime            *time.Time
+	logger                 logger.Logger
+	index                  int
+	runtime                runtime.Runtime
+	structuredCloudEvent   cloudevent.Structured
+	binaryCloudEvent       cloudevent.Binary
+	eventTime              *time.Time
+	processEventCompleted  sync.WaitGroup
+	processEventInProgress bool
 }
 
 // NewWorker creates a new worker
@@ -61,10 +64,16 @@ func NewWorker(parentLogger logger.Logger,
 
 // ProcessEvent sends the event to the associated runtime
 func (w *Worker) ProcessEvent(event nuclio.Event, functionLogger logger.Logger) (interface{}, error) {
+	defer func() {
+		w.processEventCompleted.Done()
+	}()
 	w.eventTime = clock.Now()
 
 	// process the event at the runtime
+	w.processEventInProgress = true
+	w.processEventCompleted.Add(1)
 	response, err := w.runtime.ProcessEvent(event, functionLogger)
+	w.processEventInProgress = false
 	w.eventTime = nil
 
 	// check if there was a processing error. if so, log it
@@ -113,6 +122,16 @@ func (w *Worker) GetStatus() status.Status {
 // Stop stops the worker and associated runtime
 func (w *Worker) Stop() error {
 	return w.runtime.Stop()
+}
+
+func (w *Worker) StopGracefully() error {
+	if w.processEventInProgress {
+		//blocking and wait until ProcessEvent is completed.
+		w.logger.InfoWith("Worker still in progress with function codes, please wait.", "Id", w.GetIndex(), "Runtime", w.GetRuntime(), "Status", w.GetStatus())
+		w.processEventCompleted.Wait()
+	}
+	w.logger.InfoWith("Stopping worker", "Id", w.GetIndex(), "Runtime", w.GetRuntime(), "Status", w.GetStatus())
+	return w.runtime.StopGracefully()
 }
 
 // GetStructuredCloudEvent return a structued clould event

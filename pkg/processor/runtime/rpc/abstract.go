@@ -25,6 +25,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"syscall"
 	"time"
 
 	"github.com/nuclio/nuclio/pkg/common"
@@ -159,6 +160,30 @@ func (r *AbstractRuntime) Stop() error {
 		if err := r.wrapperProcess.Kill(); err != nil {
 			r.SetStatus(status.Error)
 			return errors.Wrap(err, "Can't kill wrapper process")
+		}
+	}
+
+	r.waitForProcessTermination()
+
+	r.wrapperProcess = nil
+
+	r.SetStatus(status.Stopped)
+	r.Logger.Warn("Successfully stopped wrapper process")
+	return nil
+}
+
+// StopGracefully stops the runtime gracefully by waiting process ends itself.
+func (r *AbstractRuntime) StopGracefully() error {
+	if r.wrapperProcess != nil {
+		// stop waiting for process
+		if err := r.processWaiter.Cancel(); err != nil {
+			r.Logger.WarnWith("Failed to cancel process waiting")
+		}
+		r.Logger.WarnWith("Waiting wrapper process ends", "wrapperProcessPid", r.wrapperProcess.Pid)
+
+		if err := r.wrapperProcess.Signal(syscall.SIGTERM); err != nil {
+			r.SetStatus(status.Error)
+			return errors.Wrap(err, "Can't wait wrapper process")
 		}
 	}
 

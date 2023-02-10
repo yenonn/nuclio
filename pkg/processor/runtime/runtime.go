@@ -52,6 +52,9 @@ type Runtime interface {
 	// Start starts the runtime, or does nothing if the runtime does not require starting (e.g. Go and shell runtimes)
 	Start() error
 
+	// Stop stops gracefully the runtime
+	StopGracefully() error
+
 	// Stop stops the runtime
 	Stop() error
 
@@ -231,6 +234,12 @@ func (ar *AbstractRuntime) createContext(parentLogger logger.Logger,
 
 // Stop stops the runtime
 func (ar *AbstractRuntime) Stop() error {
+	ar.SetStatus(status.Stopped)
+	return nil
+}
+
+// Stop stops the runtime
+func (ar *AbstractRuntime) StopGracefully() error {
 	ar.SetStatus(status.Stopped)
 	return nil
 }
