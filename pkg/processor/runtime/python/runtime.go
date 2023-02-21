@@ -138,6 +138,7 @@ func (py *python) cleanRunAwayPythonPid() {
 			if err != nil {
 				py.Logger.DebugWith("Processes failing", "error", err)
 			}
+			py.Logger.DebugWith("Killing runaway pid", "pid", pid.Pid())
 			proc.Kill()
 		}
 	}
