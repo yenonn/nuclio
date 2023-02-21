@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 
+	ps "github.com/mitchellh/go-ps"
 	"github.com/nuclio/nuclio/pkg/common"
 	"github.com/nuclio/nuclio/pkg/processor/runtime"
 	"github.com/nuclio/nuclio/pkg/processor/runtime/rpc"
@@ -118,11 +119,29 @@ func (py *python) RunWrapper(socketPath string) (*os.Process, error) {
 
 // WaitForStart returns whether the runtime supports sending an indication that it started
 func (py *python) WaitForStart() bool {
+	py.cleanRunAwayPythonPid()
 	return true
 }
 
 func (py *python) getHandler() string {
 	return py.configuration.Spec.Handler
+}
+
+func (py *python) cleanRunAwayPythonPid() {
+	pids, err := ps.Processes()
+	if err != nil {
+		py.Logger.DebugWith("Processes failing", "error", err)
+	}
+	for _, pid := range pids {
+		if pid.PPid() == 1 && pid.Executable() == "python3" {
+			proc, err := os.FindProcess(pid.Pid())
+			if err != nil {
+				py.Logger.DebugWith("Processes failing", "error", err)
+			}
+			proc.Kill()
+		}
+	}
+
 }
 
 // TODO: Global processor configuration, where should this go?

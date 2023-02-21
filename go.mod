@@ -66,6 +66,8 @@ require (
 	k8s.io/metrics v0.23.8
 )
 
+require github.com/mitchellh/go-ps v1.0.0
+
 require (
 	cloud.google.com/go v0.81.0 // indirect
 	code.cloudfoundry.org/clock v1.0.0 // indirect
