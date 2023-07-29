@@ -181,10 +181,11 @@ func (at *AbstractTrigger) AllocateWorkerAndSubmitEvent(event nuclio.Event,
 		return nil, errors.Wrap(err, "Failed to allocate worker"), nil
 	}
 
-	response, processError = at.SubmitEventToWorker(functionLogger, workerInstance, event)
-
-	// release worker when we're done
-	at.WorkerAllocator.Release(workerInstance)
+	go func() {
+		response, processError = at.SubmitEventToWorker(functionLogger, workerInstance, event)
+		// release worker when we're done
+		at.WorkerAllocator.Release(workerInstance)
+	}()
 
 	return
 }
@@ -303,6 +304,7 @@ func (at *AbstractTrigger) SubmitEventToWorker(functionLogger logger.Logger,
 // TimeoutWorker times out a worker
 func (at *AbstractTrigger) TimeoutWorker(worker *worker.Worker) error {
 	return nil
+
 }
 
 // UpdateStatistics updates the trigger statistics

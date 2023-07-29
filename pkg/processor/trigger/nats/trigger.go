@@ -140,9 +140,24 @@ func (n *nats) listenForMessages(messageChan chan *natsio.Msg) {
 			_, submitError, processError := n.AllocateWorkerAndSubmitEvent(&n.event, n.Logger, 10*time.Second)
 			if submitError != nil {
 				n.Logger.ErrorWith("Can't submit event", "error", submitError)
+				err := n.event.natsMessage.Nak()
+				if err != nil {
+					n.Logger.ErrorWith("NAck", "error", err)
+				}
 			}
 			if processError != nil {
 				n.Logger.ErrorWith("Can't process event", "error", processError)
+				err := n.event.natsMessage.Nak()
+				if err != nil {
+					n.Logger.ErrorWith("NAck", "error", err)
+				}
+			}
+			if submitError == nil && processError == nil {
+				err := n.event.natsMessage.AckSync()
+				if err != nil {
+					n.Logger.ErrorWith("Ack", "error", err)
+				}
+
 			}
 		case <-n.stop:
 			return
