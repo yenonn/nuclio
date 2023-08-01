@@ -135,30 +135,20 @@ func (n *nats) listenForMessages(messageChan chan *natsio.Msg) {
 	for {
 		select {
 		case natsMessage := <-messageChan:
-			n.event.natsMessage = natsMessage
-			// process the event, don't really do anything with response
-			_, submitError, processError := n.AllocateWorkerAndSubmitEvent(&n.event, n.Logger, 10*time.Second)
-			if submitError != nil {
-				n.Logger.ErrorWith("Can't submit event", "error", submitError)
-				err := n.event.natsMessage.Nak()
-				if err != nil {
-					n.Logger.ErrorWith("NAck", "error", err)
+			go func() {
+				for n.WorkerAllocator.GetNumWorkersAvailable() == 0 {
+					time.Sleep(10 * time.Second)
 				}
-			}
-			if processError != nil {
-				n.Logger.ErrorWith("Can't process event", "error", processError)
-				err := n.event.natsMessage.Nak()
-				if err != nil {
-					n.Logger.ErrorWith("NAck", "error", err)
+				n.event.natsMessage = natsMessage
+				// process the event, don't really do anything with response
+				_, submitError, processError := n.AllocateWorkerAndSubmitEvent(&n.event, n.Logger, 10*time.Second)
+				if submitError != nil {
+					n.Logger.ErrorWith("Can't submit event", "error", submitError)
 				}
-			}
-			if submitError == nil && processError == nil {
-				err := n.event.natsMessage.AckSync()
-				if err != nil {
-					n.Logger.ErrorWith("Ack", "error", err)
+				if processError != nil {
+					n.Logger.ErrorWith("Can't process event", "error", processError)
 				}
-
-			}
+			}()
 		case <-n.stop:
 			return
 		}
