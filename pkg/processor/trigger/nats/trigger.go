@@ -113,12 +113,25 @@ func (n *nats) Start(checkpoint functionconfig.Checkpoint) error {
 		"queueName", queueName)
 
 	natsConnection, err := natsio.Connect(n.configuration.URL)
+	natsJsConnection, err_js_ctx := natsConnection.JetStream()
+
+	streamConfig := natsio.StreamConfig{Name: n.configuration.QueueName,
+		Subjects:  []string{n.configuration.Topic},
+		Retention: natsio.LimitsPolicy}
+	info, err_js := natsJsConnection.AddStream(&streamConfig)
 	if err != nil {
 		return errors.Wrapf(err, "Can't connect to NATS server %s", n.configuration.URL)
 	}
+	if err_js_ctx != nil {
+		return errors.Wrapf(err_js_ctx, "Can't connect to NATS JetStream server %s", n.configuration.URL)
+	}
+	if err_js != nil {
+		return errors.Wrapf(err_js, "Can't create the Jetstream stream %s", n.configuration.QueueName)
+	}
+	n.Logger.InfoWith("Jetstream: ", "stream", info.Config.Name)
 
 	messageChan := make(chan *natsio.Msg, 64)
-	n.natsSubscription, err = natsConnection.ChanQueueSubscribe(n.configuration.Topic, n.configuration.QueueName, messageChan)
+	n.natsSubscription, err = natsJsConnection.ChanQueueSubscribe(n.configuration.Topic, n.configuration.QueueName, messageChan)
 	if err != nil {
 		return errors.Wrapf(err, "Can't subscribe to topic %q in queue %q", n.configuration.Topic, queueName)
 	}
@@ -143,10 +156,24 @@ func (n *nats) listenForMessages(messageChan chan *natsio.Msg) {
 				// process the event, don't really do anything with response
 				_, submitError, processError := n.AllocateWorkerAndSubmitEvent(&n.event, n.Logger, 10*time.Second)
 				if submitError != nil {
+					err := natsMessage.Nak()
+					if err != nil {
+						n.Logger.ErrorWith("SubmitError: Can't nack message", "error", err)
+					}
 					n.Logger.ErrorWith("Can't submit event", "error", submitError)
 				}
 				if processError != nil {
+					err := natsMessage.Nak()
+					if err != nil {
+						n.Logger.ErrorWith("ProcessError: Can't nack message", "error", err)
+					}
 					n.Logger.ErrorWith("Can't process event", "error", processError)
+				}
+				if submitError == nil && processError == nil {
+					err := natsMessage.AckSync()
+					if err != nil {
+						n.Logger.ErrorWith("Can't ack message", "error", err)
+					}
 				}
 			}()
 		case <-n.stop:
