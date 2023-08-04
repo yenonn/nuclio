@@ -18,6 +18,7 @@ package nats
 
 import (
 	"bytes"
+	"fmt"
 	"net/url"
 	"text/template"
 	"time"
@@ -115,8 +116,9 @@ func (n *nats) Start(checkpoint functionconfig.Checkpoint) error {
 	natsConnection, err := natsio.Connect(n.configuration.URL)
 	natsJsConnection, err_js_ctx := natsConnection.JetStream()
 
+	streamWildCard := fmt.Sprintf("%s.>", n.configuration.QueueName)
 	streamConfig := natsio.StreamConfig{Name: n.configuration.QueueName,
-		Subjects:  []string{n.configuration.Topic},
+		Subjects:  []string{streamWildCard},
 		Retention: natsio.LimitsPolicy}
 	info, err_js := natsJsConnection.AddStream(&streamConfig)
 	if err != nil {
@@ -128,7 +130,7 @@ func (n *nats) Start(checkpoint functionconfig.Checkpoint) error {
 	if err_js != nil {
 		return errors.Wrapf(err_js, "Can't create the Jetstream stream %s", n.configuration.QueueName)
 	}
-	n.Logger.InfoWith("Jetstream: ", "stream", info.Config.Name)
+	n.Logger.InfoWith("Jetstream created: ", "stream", info.Config.Name)
 
 	messageChan := make(chan *natsio.Msg, 64)
 	n.natsSubscription, err = natsJsConnection.ChanQueueSubscribe(n.configuration.Topic, n.configuration.QueueName, messageChan)
