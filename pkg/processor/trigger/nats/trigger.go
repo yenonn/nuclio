@@ -119,7 +119,8 @@ func (n *nats) Start(checkpoint functionconfig.Checkpoint) error {
 	streamWildCard := fmt.Sprintf("%s.>", n.configuration.QueueName)
 	streamConfig := natsio.StreamConfig{Name: n.configuration.QueueName,
 		Subjects:  []string{streamWildCard},
-		Retention: natsio.LimitsPolicy}
+		Retention: natsio.LimitsPolicy,
+		MaxAge:    7 * 24 * time.Hour}
 	info, err_js := natsJsConnection.AddStream(&streamConfig)
 	if err != nil {
 		return errors.Wrapf(err, "Can't connect to NATS server %s", n.configuration.URL)
