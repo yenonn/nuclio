@@ -135,9 +135,9 @@ func (n *nats) Start(checkpoint functionconfig.Checkpoint) error {
 		if err != nil {
 			return errors.Wrapf(err, "Can't create the Jetstream stream %s", n.configuration.QueueName)
 		}
-		n.Logger.InfoWith("Jetstream created: ", "stream", info.Config.Name)
+		n.Logger.InfoWith("Jetstream created", "stream", info.Config.Name)
 	} else {
-		n.Logger.InfoWith("Jetstream: ", "stream", info.Config.Name)
+		n.Logger.InfoWith("Jetstream", "stream", info.Config.Name)
 	}
 
 	messageChan := make(chan *natsio.Msg, 64)
