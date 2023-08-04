@@ -114,24 +114,31 @@ func (n *nats) Start(checkpoint functionconfig.Checkpoint) error {
 		"queueName", queueName)
 
 	natsConnection, err := natsio.Connect(n.configuration.URL)
-	natsJsConnection, err_js_ctx := natsConnection.JetStream()
-
-	streamWildCard := fmt.Sprintf("%s.>", n.configuration.QueueName)
-	streamConfig := natsio.StreamConfig{Name: n.configuration.QueueName,
-		Subjects:  []string{streamWildCard},
-		Retention: natsio.LimitsPolicy,
-		MaxAge:    7 * 24 * time.Hour}
-	info, err_js := natsJsConnection.AddStream(&streamConfig)
 	if err != nil {
 		return errors.Wrapf(err, "Can't connect to NATS server %s", n.configuration.URL)
 	}
-	if err_js_ctx != nil {
-		return errors.Wrapf(err_js_ctx, "Can't connect to NATS JetStream server %s", n.configuration.URL)
+
+	natsJsConnection, err := natsConnection.JetStream()
+	if err != nil {
+		return errors.Wrapf(err, "Can't connect to NATS JetStream server %s", n.configuration.URL)
 	}
-	if err_js != nil {
-		return errors.Wrapf(err_js, "Can't create the Jetstream stream %s", n.configuration.QueueName)
+
+	// Create stream
+	if info, err := natsJsConnection.StreamInfo(n.configuration.QueueName); err != nil {
+		// not found any info, create it now
+		streamWildCard := fmt.Sprintf("%s.>", n.configuration.QueueName)
+		streamConfig := natsio.StreamConfig{Name: n.configuration.QueueName,
+			Subjects:  []string{streamWildCard},
+			Retention: natsio.LimitsPolicy,
+			MaxAge:    7 * 24 * time.Hour}
+		_, err := natsJsConnection.AddStream(&streamConfig)
+		if err != nil {
+			return errors.Wrapf(err, "Can't create the Jetstream stream %s", n.configuration.QueueName)
+		}
+		n.Logger.InfoWith("Jetstream created: ", "stream", info.Config.Name)
+	} else {
+		n.Logger.InfoWith("Jetstream: ", "stream", info.Config.Name)
 	}
-	n.Logger.InfoWith("Jetstream created: ", "stream", info.Config.Name)
 
 	messageChan := make(chan *natsio.Msg, 64)
 	n.natsSubscription, err = natsJsConnection.ChanQueueSubscribe(n.configuration.Topic, n.configuration.QueueName, messageChan)
@@ -152,6 +159,10 @@ func (n *nats) listenForMessages(messageChan chan *natsio.Msg) {
 		select {
 		case natsMessage := <-messageChan:
 			go func() {
+				err := natsMessage.AckSync()
+				if err != nil {
+					n.Logger.ErrorWith("Can't ack message", "error", err)
+				}
 				for n.WorkerAllocator.GetNumWorkersAvailable() == 0 {
 					time.Sleep(10 * time.Second)
 				}
@@ -159,24 +170,10 @@ func (n *nats) listenForMessages(messageChan chan *natsio.Msg) {
 				// process the event, don't really do anything with response
 				_, submitError, processError := n.AllocateWorkerAndSubmitEvent(&n.event, n.Logger, 10*time.Second)
 				if submitError != nil {
-					err := natsMessage.Nak()
-					if err != nil {
-						n.Logger.ErrorWith("SubmitError: Can't nack message", "error", err)
-					}
 					n.Logger.ErrorWith("Can't submit event", "error", submitError)
 				}
 				if processError != nil {
-					err := natsMessage.Nak()
-					if err != nil {
-						n.Logger.ErrorWith("ProcessError: Can't nack message", "error", err)
-					}
 					n.Logger.ErrorWith("Can't process event", "error", processError)
-				}
-				if submitError == nil && processError == nil {
-					err := natsMessage.AckSync()
-					if err != nil {
-						n.Logger.ErrorWith("Can't ack message", "error", err)
-					}
 				}
 			}()
 		case <-n.stop:
