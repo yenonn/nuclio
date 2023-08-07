@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"fmt"
 	"net/url"
+	"strings"
 	"text/template"
 	"time"
 
@@ -123,7 +124,6 @@ func (n *nats) Start(checkpoint functionconfig.Checkpoint) error {
 		return errors.Wrapf(err, "Can't connect to NATS JetStream server %s", n.configuration.URL)
 	}
 
-	// Create stream
 	if info, err := natsJsConnection.StreamInfo(n.configuration.QueueName); err != nil {
 		// not found any info, create it now
 		streamWildCard := fmt.Sprintf("%s.>", n.configuration.QueueName)
@@ -139,11 +139,16 @@ func (n *nats) Start(checkpoint functionconfig.Checkpoint) error {
 	} else {
 		n.Logger.InfoWith("Jetstream", "stream", info.Config.Name)
 	}
-
+	durableName := strings.Replace(n.configuration.Topic, ".", "-", -1)
 	messageChan := make(chan *natsio.Msg, 64)
-	n.natsSubscription, err = natsJsConnection.ChanQueueSubscribe(n.configuration.Topic, n.configuration.QueueName, messageChan)
-	if err != nil {
-		return errors.Wrapf(err, "Can't subscribe to topic %q in queue %q", n.configuration.Topic, queueName)
+	if _, err := natsJsConnection.ConsumerInfo(n.configuration.QueueName, n.configuration.Topic); err != nil {
+		n.Logger.InfoWith("Consumer created", "consumer", durableName)
+		n.natsSubscription, err = natsJsConnection.ChanQueueSubscribe(n.configuration.Topic, n.configuration.QueueName, messageChan, natsio.Durable(durableName))
+		if err != nil {
+			return errors.Wrapf(err, "Can't subscribe to topic %q in queue %q", n.configuration.Topic, queueName)
+		}
+	} else {
+		n.Logger.InfoWith("Consumer", "consumer", durableName)
 	}
 	go n.listenForMessages(messageChan)
 	return nil
@@ -158,24 +163,28 @@ func (n *nats) listenForMessages(messageChan chan *natsio.Msg) {
 	for {
 		select {
 		case natsMessage := <-messageChan:
-			go func() {
-				err := natsMessage.AckSync()
+			if n.WorkerAllocator.GetNumWorkersAvailable() == 0 {
+				err := natsMessage.NakWithDelay(10 * time.Second)
 				if err != nil {
 					n.Logger.ErrorWith("Can't ack message", "error", err)
 				}
-				for n.WorkerAllocator.GetNumWorkersAvailable() == 0 {
-					time.Sleep(10 * time.Second)
-				}
-				n.event.natsMessage = natsMessage
-				// process the event, don't really do anything with response
-				_, submitError, processError := n.AllocateWorkerAndSubmitEvent(&n.event, n.Logger, 10*time.Second)
-				if submitError != nil {
-					n.Logger.ErrorWith("Can't submit event", "error", submitError)
-				}
-				if processError != nil {
-					n.Logger.ErrorWith("Can't process event", "error", processError)
-				}
-			}()
+			} else {
+				go func() {
+					err := natsMessage.AckSync()
+					if err != nil {
+						n.Logger.ErrorWith("Can't ack message", "error", err)
+					}
+					n.event.natsMessage = natsMessage
+					// process the event, don't really do anything with response
+					_, submitError, processError := n.AllocateWorkerAndSubmitEvent(&n.event, n.Logger, 10*time.Second)
+					if submitError != nil {
+						n.Logger.ErrorWith("Can't submit event", "error", submitError)
+					}
+					if processError != nil {
+						n.Logger.ErrorWith("Can't process event", "error", processError)
+					}
+				}()
+			}
 		case <-n.stop:
 			return
 		}
