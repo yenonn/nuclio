@@ -115,26 +115,28 @@ func (n *nats) Start(checkpoint functionconfig.Checkpoint) error {
 	}
 
 	// source auth credential for connection.
-	auth_username, err := os.ReadFile("/nats-secret/username")
+	js_username, err := os.ReadFile("/nats-secret/js_user")
 	if err != nil {
 		return errors.Wrapf(err, "Cannot read nats username.")
 	}
-	auth_password, err := os.ReadFile("/nats-secret/password")
+	js_password, err := os.ReadFile("/nats-secret/js_password")
 	if err != nil {
 		return errors.Wrapf(err, "Cannot read nats credential.")
 	}
 
 	queueName = queueNameTemplateBuffer.String()
-	n.Logger.InfoWith("Starting TLS connection to nats server",
+	n.Logger.InfoWith(
+		"Starting TLS connection to nats server",
 		"serverURL", n.configuration.URL,
 		"rootCACert", rootCACerts,
 		"topic", n.configuration.Topic,
-		"queueName", queueName)
+		"queueName", queueName,
+	)
 
 	natsConnection, err := natsio.Connect(
 		n.configuration.URL,
 		natsio.RootCAs(rootCACerts),
-		natsio.UserInfo(string(auth_username), string(auth_password)),
+		natsio.UserInfo(string(js_username), string(js_password)),
 	)
 	if err != nil {
 		return errors.Wrapf(err, "Can't connect to NATS server %s", n.configuration.URL)
