@@ -119,7 +119,6 @@ func (n *nats) Start(checkpoint functionconfig.Checkpoint) error {
 	if err != nil {
 		return errors.Wrapf(err, "Cannot read nats username.")
 	}
-
 	auth_password, err := os.ReadFile("/nats-secret/password")
 	if err != nil {
 		return errors.Wrapf(err, "Cannot read nats credential.")
@@ -149,10 +148,12 @@ func (n *nats) Start(checkpoint functionconfig.Checkpoint) error {
 	if info, err := natsJsConnection.StreamInfo(n.configuration.QueueName); err != nil {
 		// not found any info, create it now
 		streamWildCard := fmt.Sprintf("%s.>", n.configuration.QueueName)
-		streamConfig := natsio.StreamConfig{Name: n.configuration.QueueName,
+		streamConfig := natsio.StreamConfig{
+			Name:      n.configuration.QueueName,
 			Subjects:  []string{streamWildCard},
 			Retention: natsio.LimitsPolicy,
-			MaxAge:    7 * 24 * time.Hour}
+			MaxAge:    7 * 24 * time.Hour,
+		}
 		_, err := natsJsConnection.AddStream(&streamConfig)
 		if err != nil {
 			return errors.Wrapf(err, "Can't create the Jetstream stream %s", n.configuration.QueueName)
