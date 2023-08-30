@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 	"text/template"
 	"time"
@@ -107,14 +108,19 @@ func (n *nats) Start(checkpoint functionconfig.Checkpoint) error {
 	if err != nil {
 		return errors.Wrap(err, "Failed to execute queueName template")
 	}
+	rootCACerts := os.Getenv("NUCLIO_ROOT_CA_CERTS_FILE")
+	if _, err := os.Stat(rootCACerts); err != nil {
+		return errors.Wrapf(err, "Root CA Certificate is missing.")
+	}
 
 	queueName = queueNameTemplateBuffer.String()
 	n.Logger.InfoWith("Starting",
 		"serverURL", n.configuration.URL,
+		"rootCACert", rootCACerts,
 		"topic", n.configuration.Topic,
 		"queueName", queueName)
 
-	natsConnection, err := natsio.Connect(n.configuration.URL)
+	natsConnection, err := natsio.Connect(n.configuration.URL, natsio.RootCAs(rootCACerts))
 	if err != nil {
 		return errors.Wrapf(err, "Can't connect to NATS server %s", n.configuration.URL)
 	}
