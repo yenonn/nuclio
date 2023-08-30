@@ -125,7 +125,7 @@ func (n *nats) Start(checkpoint functionconfig.Checkpoint) error {
 	}
 
 	queueName = queueNameTemplateBuffer.String()
-	n.Logger.InfoWith("Starting",
+	n.Logger.InfoWith("Starting TLS connection to nats server",
 		"serverURL", n.configuration.URL,
 		"rootCACert", rootCACerts,
 		"topic", n.configuration.Topic,
