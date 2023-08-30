@@ -117,11 +117,11 @@ func (n *nats) Start(checkpoint functionconfig.Checkpoint) error {
 	// source auth credential for connection.
 	js_username, err := os.ReadFile("/nats-secret/js_user")
 	if err != nil {
-		return errors.Wrapf(err, "Cannot read nats username.")
+		return errors.Wrapf(err, "Cannot read nats js username.")
 	}
 	js_password, err := os.ReadFile("/nats-secret/js_password")
 	if err != nil {
-		return errors.Wrapf(err, "Cannot read nats credential.")
+		return errors.Wrapf(err, "Cannot read nats js credential.")
 	}
 
 	queueName = queueNameTemplateBuffer.String()
