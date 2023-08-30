@@ -108,9 +108,21 @@ func (n *nats) Start(checkpoint functionconfig.Checkpoint) error {
 	if err != nil {
 		return errors.Wrap(err, "Failed to execute queueName template")
 	}
+	// source rootCACert for TLS connection.
 	rootCACerts := os.Getenv("NUCLIO_ROOT_CA_CERTS_FILE")
 	if _, err := os.Stat(rootCACerts); err != nil {
 		return errors.Wrapf(err, "Root CA Certificate is missing.")
+	}
+
+	// source auth credential for connection.
+	auth_username, err := os.ReadFile("/nats-secret/username")
+	if err != nil {
+		return errors.Wrapf(err, "Cannot read nats username.")
+	}
+
+	auth_password, err := os.ReadFile("/nats-secret/password")
+	if err != nil {
+		return errors.Wrapf(err, "Cannot read nats credential.")
 	}
 
 	queueName = queueNameTemplateBuffer.String()
@@ -120,7 +132,11 @@ func (n *nats) Start(checkpoint functionconfig.Checkpoint) error {
 		"topic", n.configuration.Topic,
 		"queueName", queueName)
 
-	natsConnection, err := natsio.Connect(n.configuration.URL, natsio.RootCAs(rootCACerts))
+	natsConnection, err := natsio.Connect(
+		n.configuration.URL,
+		natsio.RootCAs(rootCACerts),
+		natsio.UserInfo(string(auth_username), string(auth_password)),
+	)
 	if err != nil {
 		return errors.Wrapf(err, "Can't connect to NATS server %s", n.configuration.URL)
 	}
